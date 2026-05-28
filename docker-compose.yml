@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: aegis_db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: aegis
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d aegis"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    container_name: aegis_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@db:5432/aegis
+      - BRIGHT_DATA_SERP_API_KEY=${BRIGHT_DATA_SERP_API_KEY}
+      - BRIGHT_DATA_WEB_UNLOCKER_URL=${BRIGHT_DATA_WEB_UNLOCKER_URL}
+      - BRIGHT_DATA_SCRAPING_BROWSER_URL=${BRIGHT_DATA_SCRAPING_BROWSER_URL}
+      - AIML_API_KEY=${AIML_API_KEY}
+      - AIML_API_BASE_URL=${AIML_API_BASE_URL:-https://api.aimlapi.com/v1}
+      - COGNEE_API_KEY=${COGNEE_API_KEY}
+      - TRIGGERWARE_WEBHOOK_URL=${TRIGGERWARE_WEBHOOK_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - /app/apps/backend/aegis.db  # Prevent SQLite lock overrides if running hybrid
+
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+    container_name: aegis_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

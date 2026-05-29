@@ -2,11 +2,12 @@ import logging
 from datetime import datetime
 from typing import TypedDict, List, Dict, Any, Callable, Optional
 from langgraph.graph import StateGraph, END
-from packages.shared.bright_data import serp_search, scrape_url
+from packages.shared.bright_data import serp_search, scrape_url, scrape_dynamic
 from packages.agents.ai_client import extract_entities, synthesize_intelligence
 from packages.memory.cognee_client import remember_finding, recall_context
 from packages.workflows.trigger_client import trigger_workflow
 from apps.backend.database import AsyncSessionLocal, DBInvestigation, DBSignal, DBWorkflowEvent, DBMemoryNode
+from apps.backend.config import settings
 
 logger = logging.getLogger("aegis.graph")
 
@@ -114,16 +115,32 @@ async def investigate_node(state: AegisState) -> AegisState:
     # Scrape top 3 pages using Web Unlocker
     urls_to_scrape = [res["link"] for res in results[:3] if "link" in res]
     
-    for url in urls_to_scrape:
-        if state["callback"]:
-            await state["callback"]({
-                "type": "step",
-                "step": "investigate",
-                "message": f"Scraping proxy host: {url}",
-                "timestamp": datetime.utcnow().isoformat()
-            })
+    for idx, url in enumerate(urls_to_scrape):
+        # Showcase Scraping Browser (Playwright CDP) for the primary link if credentials exist!
+        if idx == 0 and settings.BRIGHT_DATA_SCRAPING_BROWSER_URL:
+            if state["callback"]:
+                await state["callback"]({
+                    "type": "step",
+                    "step": "investigate",
+                    "message": f"Connecting to headless scraping browser via Playwright CDP: {url}",
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+            try:
+                html = await scrape_dynamic(url)
+            except Exception as e:
+                logger.error(f"Scraping Browser failed for {url}: {e}. Falling back to Web Unlocker.")
+                html = await scrape_url(url)
+        else:
+            # Use Web Unlocker proxies for subsequent links
+            if state["callback"]:
+                await state["callback"]({
+                    "type": "step",
+                    "step": "investigate",
+                    "message": f"Scraping proxy host via Web Unlocker: {url}",
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+            html = await scrape_url(url)
             
-        html = await scrape_url(url)
         scraped_content.append(html[:5000])  # store first 5k characters of content
         
         # Extract entities using Mistral AI/ML API

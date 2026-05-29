@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Loader2, Hubot, Network, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
+import { Loader2, Network, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 
 interface Node {
   id: string;

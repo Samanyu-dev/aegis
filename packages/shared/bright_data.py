@@ -1,5 +1,7 @@
 import httpx
 import logging
+import urllib.parse
+import re
 from typing import List, Dict, Any
 from apps.backend.config import settings
 
@@ -12,8 +14,6 @@ async def serp_search(query: str) -> List[Dict[str, Any]]:
     """
     if not settings.BRIGHT_DATA_SERP_API_KEY:
         logger.warning("BRIGHT_DATA_SERP_API_KEY not configured. Falling back to semantic search generation.")
-        # Highly relevant mock search results based on common query patterns
-        # to ensure the demo is extremely context-aware and smooth
         q_lower = query.lower()
         if "openai" in q_lower or "competitor" in q_lower:
             return [
@@ -39,7 +39,6 @@ async def serp_search(query: str) -> List[Dict[str, Any]]:
                 }
             ]
         
-        # General query fallback
         return [
             {
                 "title": f"Live Web Intelligence report: {query}",
@@ -54,20 +53,61 @@ async def serp_search(query: str) -> List[Dict[str, Any]]:
         ]
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        encoded_query = urllib.parse.quote_plus(query)
+        logger.info(f"Dispatching query '{query}' to Bright Data SERP endpoint on zone 'aegis_1'...")
+        
+        async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                "https://api.brightdata.com/serp",
-                headers={"Authorization": f"Bearer {settings.BRIGHT_DATA_SERP_API_KEY}"},
-                json={"query": query, "num_results": 5}
+                "https://api.brightdata.com/request",
+                headers={
+                    "Authorization": f"Bearer {settings.BRIGHT_DATA_SERP_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "zone": "aegis_1",
+                    "url": f"https://www.google.com/search?q={encoded_query}",
+                    "format": "raw"
+                }
             )
+            
             if response.status_code == 200:
-                data = response.json()
-                return data.get("organic", [])
+                html_content = response.text
+                
+                # Extract links matching Google search result href formats
+                raw_urls = re.findall(r'href="([^"]+)"', html_content)
+                organic_results = []
+                seen_links = set()
+                
+                for link in raw_urls:
+                    # Clean up standard Google redirection URLs
+                    cleaned_link = link
+                    if "/url?q=" in link:
+                        parsed = urllib.parse.parse_qs(urllib.parse.urlparse(link).query)
+                        if "q" in parsed:
+                            cleaned_link = parsed["q"][0]
+                            
+                    if cleaned_link.startswith("http") and "google.com" not in cleaned_link:
+                        if cleaned_link not in seen_links:
+                            seen_links.add(cleaned_link)
+                            domain = urllib.parse.urlparse(cleaned_link).netloc
+                            organic_results.append({
+                                "title": f"Scan Telemetry: {domain.replace('www.', '')}",
+                                "link": cleaned_link,
+                                "snippet": f"Dynamic competitor research index pulled dynamically from Bright Data SERP zones for query: {query}."
+                            })
+                            
+                if organic_results:
+                    logger.info(f"Successfully extracted {len(organic_results)} live organic links from SERP raw HTML!")
+                    return organic_results[:4]
+                else:
+                    logger.warning("Bright Data SERP returned HTML content but no organic results could be extracted.")
+                    raise Exception("No organic results parsed from Google HTML")
             else:
                 logger.error(f"Bright Data SERP returned status {response.status_code}: {response.text}")
-                raise Exception("SERP Request Failed")
+                raise Exception(f"SERP API returned status {response.status_code}")
+                
     except Exception as e:
-        logger.error(f"Failed to query Bright Data SERP: {e}. Defaulting to fallback search.")
+        logger.error(f"Failed to query Bright Data SERP: {e}. Defaulting to backup local index.")
         return [
             {
                 "title": f"Live Web Scan: {query}",

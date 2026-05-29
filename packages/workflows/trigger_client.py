@@ -18,7 +18,8 @@ async def trigger_workflow(event_type: str, payload: Dict[str, Any]) -> Dict[str
         "timestamp": timestamp
     }
     
-    if not settings.TRIGGERWARE_WEBHOOK_URL:
+    webhook_raw = settings.TRIGGERWARE_WEBHOOK_URL
+    if not webhook_raw or not webhook_raw.strip():
         logger.warning(f"TRIGGERWARE_WEBHOOK_URL not configured. Simulating workflow dispatch for: {event_type}")
         return {
             "status": "success",
@@ -28,10 +29,14 @@ async def trigger_workflow(event_type: str, payload: Dict[str, Any]) -> Dict[str
             "details": "TriggerWare simulation executed successfully."
         }
 
+    webhook_url = webhook_raw.strip()
+    if not webhook_url.startswith("http"):
+        webhook_url = f"https://app.triggerware.ai/webhooks/{webhook_url}"
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
-                settings.TRIGGERWARE_WEBHOOK_URL,
+                webhook_url,
                 json=event_data
             )
             if response.status_code in [200, 201, 202]:

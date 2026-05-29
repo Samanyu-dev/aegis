@@ -1,6 +1,7 @@
 import json
 import logging
-from typing import Dict, Any, List
+from datetime import datetime
+from typing import Dict, Any, List, Optional
 from openai import AsyncOpenAI
 from apps.backend.config import settings
 from packages.shared.models import IntelligenceReport
@@ -100,21 +101,29 @@ async def extract_entities(text: str) -> Dict[str, Any]:
     ---
     """
     
-    try:
-        response = await client.chat.completions.create(
-            model="mistral-7b-instruct",
-            messages=[
-                {"role": "system", "content": "You are a threat intelligence and corporate compliance entity extraction engine. Output raw JSON only."},
-                {"role": "user", "content": prompt}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.1
-        )
-        return json.loads(response.choices[0].message.content)
-    except Exception as e:
-        logger.error(f"AI/ML API entity extraction failed: {e}. Executing local fallback parses.")
-        # Graceful fallback logic
-        return {"entities": [{"name": "Failed Parse", "type": "COMPANY", "mentions": 1}], "signals": []}
+    models_to_try = ["mistralai/Mistral-7B-Instruct-v0.2", "gpt-4o-mini", "gpt-4o"]
+    last_err = None
+    
+    for model in models_to_try:
+        try:
+            logger.info(f"AI/ML API: Attempting entity extraction using model '{model}'...")
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are a threat intelligence and corporate compliance entity extraction engine. Output raw JSON only."},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.1
+            )
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            logger.warning(f"AI/ML API: Model '{model}' failed: {e}. Trying fallback...")
+            last_err = e
+            
+    logger.error("AI/ML API: All entity extraction model options failed. Executing fallback parser.")
+    # Graceful fallback logic
+    return {"entities": [{"name": "Failed Parse", "type": "COMPANY", "mentions": 1}], "signals": []}
 
 async def synthesize_intelligence(target: str, findings: List[Dict[str, Any]], prior_context: str) -> Dict[str, Any]:
     """

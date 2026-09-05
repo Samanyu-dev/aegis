@@ -1,33 +1,44 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
-import { 
-  Shield, Terminal, Activity, Network, Play, Eye, 
-  Download, AlertTriangle, CheckCircle, RefreshCw, Layers, Clock, Globe, Briefcase, FileText
+import { useEffect, useState, useRef, useCallback } from "react";
+import {
+  Shield, Terminal, Activity, Play,
+  Download, AlertTriangle, CheckCircle, RefreshCw, Clock, Globe, FileText
 } from "lucide-react";
-import { useInvestigation, Report, StreamEvent } from "@/hooks/useInvestigation";
+import { useInvestigation } from "@/hooks/useInvestigation";
 import MemoryGraph from "@/components/MemoryGraph";
+
+interface PastInvestigation {
+  id: string;
+  target: string;
+  risk_score: number;
+  created_at: string;
+}
+
+interface WorkflowEvent {
+  event_type: string;
+  triggered_at: string;
+}
 
 export default function DashboardPage() {
   const { investigate, steps, report, loading, error, activeTarget } = useInvestigation();
   const [targetInput, setTargetInput] = useState<string>("OpenAI");
   const [selectedFocus, setSelectedFocus] = useState<string[]>(["security", "hiring", "pricing"]);
-  const [pastInvestigations, setPastInvestigations] = useState<any[]>([]);
-  const [workflowsTriggered, setWorkflowsTriggered] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<"report" | "timeline">("report");
-  
+  const [pastInvestigations, setPastInvestigations] = useState<PastInvestigation[]>([]);
+  const [workflowsTriggered, setWorkflowsTriggered] = useState<WorkflowEvent[]>([]);
+
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   // Fetch past logs on load
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     try {
       const invsRes = await fetch(`${baseUrl}/api/investigations`);
       if (invsRes.ok) {
         const data = await invsRes.json();
         setPastInvestigations(data);
       }
-      
+
       const wfRes = await fetch(`${baseUrl}/api/workflows`);
       if (wfRes.ok) {
         const data = await wfRes.json();
@@ -36,11 +47,12 @@ export default function DashboardPage() {
     } catch (err) {
       console.error("Failed to load historical database logs:", err);
     }
-  };
+  }, [baseUrl]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional refetch of history whenever a scan completes
     fetchLogs();
-  }, [report]); // Refresh logs every time a scan completes successfully!
+  }, [report, fetchLogs]); // Refresh logs every time a scan completes successfully!
 
   // Auto-scroll terminal logs
   useEffect(() => {
@@ -59,7 +71,7 @@ export default function DashboardPage() {
   };
 
   // Export report to markdown
-  const handleExport = async (id: string, name: string) => {
+  const handleExport = async (id: string) => {
     try {
       const res = await fetch(`${baseUrl}/api/report/${id}/export`, { method: "POST" });
       if (res.ok) {
@@ -73,6 +85,7 @@ export default function DashboardPage() {
         window.URL.revokeObjectURL(url);
       }
     } catch (err) {
+      console.error("Failed to export report markdown:", err);
       alert("Failed to export report markdown.");
     }
   };
@@ -164,6 +177,14 @@ export default function DashboardPage() {
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider">RADAR SCANNING</span>
         </div>
       </header>
+
+      {/* Connection / pipeline error banner */}
+      {error && (
+        <div className="relative z-10 mx-4 mt-4 flex items-center space-x-2 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span className="text-xs font-mono">{error}</span>
+        </div>
+      )}
 
       {/* Main Command Dashboard Layout */}
       <div className="flex-1 grid grid-cols-1 xl:grid-cols-4 gap-4 p-4">
@@ -325,7 +346,7 @@ export default function DashboardPage() {
               
               {report && (
                 <button 
-                  onClick={() => handleExport(pastInvestigations[0]?.id || "export", report.target)}
+                  onClick={() => handleExport(pastInvestigations[0]?.id || "export")}
                   className="p-1 rounded bg-white/5 hover:bg-white/10 text-white/70 hover:text-cyan-400 border border-white/10 transition-all cursor-pointer"
                   title="Export Markdown"
                 >
@@ -443,8 +464,8 @@ export default function DashboardPage() {
                       <span className={`text-[9px] font-mono px-1 rounded ${getRiskColor(inv.risk_score)}`}>
                         {inv.risk_score.toFixed(1)}
                       </span>
-                      <button 
-                        onClick={() => handleExport(inv.id, inv.target)}
+                      <button
+                        onClick={() => handleExport(inv.id)}
                         className="p-1 rounded bg-white/5 hover:bg-cyan-500/10 text-white/50 hover:text-cyan-400 cursor-pointer"
                         title="Download report markdown"
                       >

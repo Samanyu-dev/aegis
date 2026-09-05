@@ -29,9 +29,22 @@ export default function MemoryGraph({ entity }: MemoryGraphProps) {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [zoom, setZoom] = useState<number>(1);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 500, height: 400 });
   const containerRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef<boolean>(false);
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Track container size for centering the graph (ref reads are unsafe during render)
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      setContainerSize({ width, height });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!entity) return;
@@ -211,7 +224,7 @@ export default function MemoryGraph({ entity }: MemoryGraphProps) {
         </defs>
         
         {/* Dynamic Transformed Group based on pan & zoom */}
-        <g transform={`translate(${pan.x + (containerRef.current?.clientWidth || 500) / 2}, ${pan.y + (containerRef.current?.clientHeight || 400) / 2}) scale(${zoom})`}>
+        <g transform={`translate(${pan.x + containerSize.width / 2}, ${pan.y + containerSize.height / 2}) scale(${zoom})`}>
           
           {/* Render Connections (Edges) */}
           {edges.map((edge, idx) => {
